@@ -34,8 +34,10 @@ DUMP_JS = os.path.join(script_dir, 'dump.js')
 
 User = 'root'
 Password = 'alpine'
-Host = 'localhost'
-Port = 2222
+SshHost = 'localhost'
+SshPort = 2222
+GadgetHost = 'localhost'
+GadgetPort = 27042
 KeyFileName = None
 
 TEMP_DIR = tempfile.gettempdir()
@@ -298,6 +300,9 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--user', dest='ssh_user', help='Specify SSH username')
     parser.add_argument('-P', '--password', dest='ssh_password', help='Specify SSH password')
     parser.add_argument('-K', '--key_filename', dest='ssh_key_filename', help='Specify SSH private key file path')
+    parser.add_argument('-g', '--gadget', action='store_true', help='frida gadget mode')
+    parser.add_augument('--gadget-host', dest='gadget_host', help='Specify frida-gadget hostname')
+    parser.add_argument('--gadget-port', dest='gadget_port', help='Specify frida-gadget port')
     parser.add_argument('target', nargs='?', help='Bundle identifier or display name of the target app')
 
     args = parser.parse_args()
@@ -309,7 +314,14 @@ if __name__ == '__main__':
         parser.print_help()
         sys.exit(exit_code)
 
-    device = get_usb_iphone()
+    if args.gadget:
+        if args.gadget_host:
+            GadgetHost = args.gadget_host
+        if args.gadget_port:
+            GadgetPort = int(args.gadget_port)
+        device = frida.get_device_manager().add_remote_device(f"{GadgetHost}:{GadgetPort}")
+    else:
+        device = get_usb_iphone()
 
     if args.list_applications:
         list_applications(device)
@@ -318,9 +330,9 @@ if __name__ == '__main__':
         output_ipa = args.output_ipa
         # update ssh args
         if args.ssh_host:
-            Host = args.ssh_host
+            SshHost = args.ssh_host
         if args.ssh_port:
-            Port = int(args.ssh_port)
+            SshPort = int(args.ssh_port)
         if args.ssh_user:
             User = args.ssh_user
         if args.ssh_password:
@@ -331,10 +343,18 @@ if __name__ == '__main__':
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(Host, port=Port, username=User, password=Password, key_filename=KeyFileName)
+            ssh.connect(SshHost, port=SshPort, username=User, password=Password, key_filename=KeyFileName)
 
             create_dir(PAYLOAD_PATH)
-            (session, display_name, bundle_identifier) = open_target_app(device, name_or_bundleid)
+            if args.gadget:
+                session = device.attach("gadget")
+                display_name = args.target
+                if name_or_bundleid != "gadget":
+                    name_or_bundleid = "gadget"
+            else:
+                session = device.attach(name_or_bundleid)
+                display_name = name_or_bundleid
+                # (session, display_name, bundle_identifier) = open_target_app(device, name_or_bundleid)
             if output_ipa is None:
                 output_ipa = display_name
             output_ipa = re.sub('\.ipa$', '', output_ipa)
